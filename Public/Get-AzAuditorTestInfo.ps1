@@ -20,39 +20,45 @@ function Get-AzAuditorTestInfo {
     $bundledManifestPath = Join-Path $PSScriptRoot "..\manifest.json"
     
     Write-Host "`n╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-    Write-Host "║      Azure Auditor - Test Information       ║" -ForegroundColor Cyan
+    Write-Host "║      Azure Auditor - Test Information        ║" -ForegroundColor Cyan
     Write-Host "╚══════════════════════════════════════════════╝`n" -ForegroundColor Cyan
     
     # Check local tests
     if (Test-Path $localManifestPath) {
         $localManifest = Get-Content $localManifestPath -Raw | ConvertFrom-Json
-        $testCount = $localManifest.tests.PSObject.Properties.Count
+        $allFiles = @($localManifest.tests.PSObject.Properties)
+        $orchestrators = $allFiles | Where-Object { $_.Name -match '^[^/]+/Test-[^/]+\.ps1$' }
+        $actualTests = $allFiles | Where-Object { $_.Name -match '/' -and $_.Name -notmatch '^[^/]+/Test-[^/]+\.ps1$' }
         
         Write-Host "📦 Test Source:    " -NoNewline -ForegroundColor Yellow
         Write-Host "Local (Downloaded)" -ForegroundColor Green
         Write-Host "📍 Test Location:  " -NoNewline -ForegroundColor Yellow
         Write-Host $localTestPath -ForegroundColor Cyan
-        Write-Host "🏷️  Version:        " -NoNewline -ForegroundColor Yellow
+        Write-Host "🏷️ Version:        " -NoNewline -ForegroundColor Yellow
         Write-Host "v$($localManifest.version)" -ForegroundColor Green
         Write-Host "📅 Last Updated:   " -NoNewline -ForegroundColor Yellow
         Write-Host $localManifest.lastUpdated -ForegroundColor Gray
         Write-Host "🧪 Test Count:     " -NoNewline -ForegroundColor Yellow
-        Write-Host "$testCount tests" -ForegroundColor White
+        Write-Host "$($actualTests.Count) tests" -NoNewline -ForegroundColor White
+        Write-Host " + $($orchestrators.Count) orchestrators" -ForegroundColor Gray
     }
     # Check bundled tests
     elseif (Test-Path $bundledManifestPath) {
         $bundledManifest = Get-Content $bundledManifestPath -Raw | ConvertFrom-Json
-        $testCount = $bundledManifest.tests.PSObject.Properties.Count
+        $allFiles = @($bundledManifest.tests.PSObject.Properties)
+        $orchestrators = $allFiles | Where-Object { $_.Name -match '^[^/]+/Test-[^/]+\.ps1$' }
+        $actualTests = $allFiles | Where-Object { $_.Name -match '/' -and $_.Name -notmatch '^[^/]+/Test-[^/]+\.ps1$' }
         $bundledTestPath = Join-Path $PSScriptRoot "..\Tests"
         
         Write-Host "📦 Test Source:    " -NoNewline -ForegroundColor Yellow
         Write-Host "Bundled (Module)" -ForegroundColor Cyan
         Write-Host "📍 Test Location:  " -NoNewline -ForegroundColor Yellow
         Write-Host $bundledTestPath -ForegroundColor Cyan
-        Write-Host "🏷️  Version:        " -NoNewline -ForegroundColor Yellow
+        Write-Host "🏷️ Version:        " -NoNewline -ForegroundColor Yellow
         Write-Host "v$($bundledManifest.version)" -ForegroundColor Green
         Write-Host "🧪 Test Count:     " -NoNewline -ForegroundColor Yellow
-        Write-Host "$testCount tests" -ForegroundColor White
+        Write-Host "$($actualTests.Count) tests" -NoNewline -ForegroundColor White
+        Write-Host " + $($orchestrators.Count) orchestrators" -ForegroundColor Gray
         
         Write-Host ""
         Write-Host "💡 Tip: Run " -NoNewline -ForegroundColor Cyan

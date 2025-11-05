@@ -6,6 +6,7 @@
     "Compute/Test-Compute.ps1": "1.0.0",
     "Compute/VM/Test-VMAvailabilityZones.ps1": "1.0.0",
     "Compute/VM/Test-VMAvailabilitySet.ps1": "1.0.0",
+    "Compute/VM/Test-VMHyperVGeneration.ps1": "1.0.0",
     "Database/Test-Database.ps1": "1.0.0",
     "Database/SQLDatabase/Test-SQLDatabaseGeoReplication.ps1": "1.0.0",
     "Database/CosmosDB/Test-CosmosDBGeoReplication.ps1": "1.0.0",
