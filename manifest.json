@@ -1,0 +1,21 @@
+{
+  "version": "1.0.0",
+  "lastUpdated": "2025-01-15T10:00:00Z",
+  "repository": "https://github.com/barto90/azauditor",
+  "tests": {
+    "Compute/Test-Compute.ps1": "1.0.0",
+    "Compute/VM/Test-VMAvailabilityZones.ps1": "1.0.0",
+    "Compute/VM/Test-VMAvailabilitySet.ps1": "1.0.0",
+    "Database/Test-Database.ps1": "1.0.0",
+    "Database/SQLDatabase/Test-SQLDatabaseGeoReplication.ps1": "1.0.0",
+    "Database/CosmosDB/Test-CosmosDBGeoReplication.ps1": "1.0.0",
+    "Database/PostgreSQL/Test-PostgreSQLGeoReplication.ps1": "1.0.0",
+    "Database/MySQL/Test-MySQLGeoReplication.ps1": "1.0.0",
+    "Networking/Test-Networking.ps1": "1.0.0",
+    "Networking/LoadBalancer/Test-LoadBalancerRedundancy.ps1": "1.0.0",
+    "Networking/LoadBalancer/Test-LoadBalancerHealthProbes.ps1": "1.0.0",
+    "Recovery/Test-Recovery.ps1": "1.0.0",
+    "Recovery/SiteRecovery/Test-VMSiteRecovery.ps1": "1.0.0"
+  }
+}
+
