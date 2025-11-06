@@ -46,24 +46,22 @@ function Start-AzAuditor {
     }
     
     process {
-        # Determine test location (local vs bundled)
-        $localTestPath = Join-Path $env:APPDATA "AzAuditor\Tests"
-        $bundledTestPath = Join-Path $PSScriptRoot "..\Tests"
+        # Use module Tests directory
+        $moduleRoot = Split-Path $PSScriptRoot -Parent
+        $testBasePath = Join-Path $moduleRoot "Tests"
         
-        $testBasePath = if (Test-Path $localTestPath) {
-            Write-Verbose "Using local tests from: $localTestPath"
-            $localTestPath
-        } else {
-            Write-Verbose "Using bundled tests from: $bundledTestPath"
-            
-            # Suggest running Update-AzAuditorTests
-            Write-Host "💡 Tip: Run " -NoNewline -ForegroundColor Cyan
-            Write-Host "Update-AzAuditorTests" -NoNewline -ForegroundColor Yellow
-            Write-Host " to download the latest tests from GitHub" -ForegroundColor Cyan
+        if (-not (Test-Path $testBasePath)) {
             Write-Host ""
-            
-            $bundledTestPath
+            Write-Host "⚠️  No tests found in module directory!" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "Run " -NoNewline -ForegroundColor Yellow
+            Write-Host "Update-AzAuditorTests" -NoNewline -ForegroundColor Cyan
+            Write-Host " to download tests from GitHub." -ForegroundColor Yellow
+            Write-Host ""
+            return
         }
+        
+        Write-Verbose "Using tests from: $testBasePath"
         
         # Discover only main orchestrator test files at category level
         $categoryDirs = Get-ChildItem -Path $testBasePath -Directory

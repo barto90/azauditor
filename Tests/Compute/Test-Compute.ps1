@@ -38,8 +38,8 @@ function Test-Compute {
         
         Write-Verbose "Processing subscription: $($subscription.Name)"
         
-        # Get all VMs once for this subscription
-        $vms = @(Get-AzVM)  # Force array to ensure .Count works correctly
+        # Get all VMs once for this subscription (with -Status to get extended properties like HyperVGeneration)
+        $vms = @(Get-AzVM -Status)  # Force array to ensure .Count works correctly
         
         if ($vms.Count -gt 0 -and $null -ne $vms[0]) {
             Write-Verbose "Found $($vms.Count) VM(s) in subscription $($subscription.Name)"

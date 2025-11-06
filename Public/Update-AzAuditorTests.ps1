@@ -5,7 +5,7 @@ function Update-AzAuditorTests {
     
     .DESCRIPTION
         Fetches the latest test manifest from GitHub and downloads new or updated test files
-        to the local cache directory. Compares versions to determine which tests need updating.
+        to the module Tests directory. Compares versions to determine which tests need updating.
     
     .PARAMETER Force
         Downloads all tests without prompting, even if they haven't changed.
@@ -36,11 +36,12 @@ function Update-AzAuditorTests {
     
     begin {
         $repoUrl = "https://raw.githubusercontent.com/barto90/azauditor/main"
-        $localTestPath = Join-Path $env:APPDATA "AzAuditor\Tests"
-        $localManifestPath = Join-Path $env:APPDATA "AzAuditor\manifest.json"
+        $moduleRoot = Split-Path $PSScriptRoot -Parent
+        $localTestPath = Join-Path $moduleRoot "Tests"
+        $localManifestPath = Join-Path $moduleRoot "manifest.json"
         
         Write-Host "`n╔══════════════════════════════════════════════╗" -ForegroundColor Cyan
-        Write-Host "║       Azure Auditor - Test Update Check     ║" -ForegroundColor Cyan
+        Write-Host "║       Azure Auditor - Test Update Check      ║" -ForegroundColor Cyan
         Write-Host "╚══════════════════════════════════════════════╝`n" -ForegroundColor Cyan
     }
     
@@ -53,14 +54,14 @@ function Update-AzAuditorTests {
             
             Write-Host "✓ Remote version: $($remoteManifest.version)" -ForegroundColor Green
             
-            # Load local manifest if exists
+            # Load local manifest
             $localManifest = $null
             if (Test-Path $localManifestPath) {
                 $localManifest = Get-Content $localManifestPath -Raw | ConvertFrom-Json
-                Write-Host "✓ Local version:  $($localManifest.version)" -ForegroundColor Green
+                Write-Host "✓ Local version:  $($localManifest.version)" -ForegroundColor Cyan
             }
             else {
-                Write-Host "⚠ No local tests found - first time setup" -ForegroundColor Yellow
+                Write-Host "⚠️ No local manifest found" -ForegroundColor Yellow
             }
             
             Write-Host ""
@@ -189,9 +190,6 @@ function Update-AzAuditorTests {
             Write-Host "  • GitHub repository not accessible" -ForegroundColor Gray
             Write-Host "  • Invalid manifest format" -ForegroundColor Gray
             Write-Host ""
-            Write-Host "The module will continue to use bundled tests." -ForegroundColor Cyan
-            Write-Host ""
         }
     }
 }
-
