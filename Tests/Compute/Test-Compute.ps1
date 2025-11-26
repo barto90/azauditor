@@ -11,16 +11,21 @@ function Test-Compute {
     [CmdletBinding()]
     param()
     
-    # Collect all results
-    $allResults = @()
+    # Get module root and load TestResult class
+    $moduleRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $classPath = Join-Path $moduleRoot "Classes\TestResult.ps1"
+    . $classPath
+    
+    # Collect all results (must be after TestResult class is loaded)
+    $allResults = [System.Collections.Generic.List[TestResult]]::new()
     
     # Discover all compute test files in subfolders (VM, VMSS, Disks, etc.)
-    $computeTestFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
-        Where-Object { $_.DirectoryName -ne $PSScriptRoot }  # Exclude the orchestrator itself
+    $computeTestFiles = @(Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
+        Where-Object { $_.DirectoryName -ne $PSScriptRoot })  # Exclude the orchestrator itself
     
     if ($computeTestFiles.Count -eq 0) {
         Write-Warning "No compute test files found in $PSScriptRoot subfolders"
-        return $allResults
+        return @()
     }
     
     Write-Verbose "Discovered $($computeTestFiles.Count) compute test file(s)"
@@ -31,52 +36,130 @@ function Test-Compute {
         . $testFile.FullName
     }
     
-    # Get all subscriptions and iterate
-    Get-AzSubscription | ForEach-Object {
-        $subscription = $_
-        Set-AzContext $_.Id | Out-Null
+    # Get current context to determine active tenant
+    $currentContext = Get-AzContext
+    if (-not $currentContext) {
+        Write-Warning "No Azure context found. Please run Connect-AzAccount first."
+        return @()
+    }
+    
+    # Get subscriptions filtered by current tenant
+    $subscriptions = @(Get-AzSubscription -TenantId $currentContext.Tenant.Id)
+    if ($subscriptions.Count -eq 0) {
+        Write-Warning "No subscriptions found in tenant: $($currentContext.Tenant.Id)"
+        return @()
+    }
+    
+    Write-Verbose "Found $($subscriptions.Count) subscription(s) in tenant: $($currentContext.Tenant.Id)"
+    
+    # Prepare test file paths for jobs
+    $testFilePaths = $computeTestFiles | ForEach-Object { $_.FullName }
+    
+    # Scriptblock for processing a single subscription in a job
+    $jobScriptBlock = {
+        param(
+            [PSCustomObject]$Subscription,
+            [string[]]$TestFilePaths,
+            [string]$ClassPath
+        )
         
-        Write-Verbose "Processing subscription: $($subscription.Name)"
-        
-        # Get all VMs once for this subscription (with -Status to get extended properties like HyperVGeneration)
-        $vms = @(Get-AzVM -Status)  # Force array to ensure .Count works correctly
-        
-        if ($vms.Count -gt 0 -and $null -ne $vms[0]) {
-            Write-Verbose "Found $($vms.Count) VM(s) in subscription $($subscription.Name)"
+        try {
+            Import-Module Az.Accounts, Az.Compute -ErrorAction Stop | Out-Null
+            . $ClassPath
+            $null = Set-AzContext -SubscriptionId $Subscription.Id -Force -ErrorAction Stop
             
-            # Run each discovered test function, passing the VMs
-            foreach ($testFile in $computeTestFiles) {
+            foreach ($testFilePath in $TestFilePaths) {
+                . $testFilePath
+            }
+            
+            $vms = @(Get-AzVM -Status -ErrorAction SilentlyContinue | Where-Object { $_.Id -like "/subscriptions/$($Subscription.Id)/*" })
+            $vmss = @(Get-AzVmss -ErrorAction SilentlyContinue | Where-Object { $_.Id -like "/subscriptions/$($Subscription.Id)/*" })
+            $subscriptionResults = @()
+            
+            foreach ($testFilePath in $TestFilePaths) {
+                $testFile = Get-Item $testFilePath
                 $functionName = $testFile.BaseName
+                $testFolder = Split-Path $testFile.DirectoryName -Leaf
                 
                 if (Get-Command $functionName -ErrorAction SilentlyContinue) {
-                    Write-Verbose "Executing test: $functionName"
-                    
                     try {
-                        # Double-check VMs array is valid before calling
-                        if ($vms -and $vms.Count -gt 0) {
-                            # Call test function with VMs and Subscription
-                            $testResults = & $functionName -VMs $vms -Subscription $subscription
-                            
-                            if ($testResults) {
-                                $allResults += $testResults
-                                Write-Verbose "Test completed: $functionName - Collected $($testResults.Count) result(s)"
-                            }
+                        if ($testFolder -eq 'VM' -and $vms.Count -gt 0) {
+                            $testResults = & $functionName -VMs $vms -Subscription $Subscription
                         }
-                        else {
-                            Write-Verbose "Skipping test $functionName - no VMs to process"
+                        elseif ($testFolder -eq 'VMSS' -and $vmss.Count -gt 0) {
+                            $testResults = & $functionName -VMSS $vmss -Subscription $Subscription
+                        }
+                        
+                        if ($testResults) {
+                            $subscriptionResults += $testResults
                         }
                     }
                     catch {
-                        Write-Warning "Error executing test '$functionName': $($_.Exception.Message)"
-                        continue
+                        Write-Warning "Error executing test '$functionName' in subscription $($Subscription.Name): $($_.Exception.Message)"
+                    }
+                }
+            }
+            
+            return $subscriptionResults
+        }
+        catch {
+            Write-Warning "Error processing subscription '$($Subscription.Name)': $($_.Exception.Message)"
+            return @()
+        }
+    }
+    
+    # Start jobs for all subscriptions
+    $jobs = @()
+    foreach ($subscription in $subscriptions) {
+        $job = Start-Job -ScriptBlock $jobScriptBlock -ArgumentList $subscription, $testFilePaths, $classPath -Name "Compute-$($subscription.Name)"
+        $jobs += $job
+    }
+    
+    # Wait for all jobs to complete
+    $completedJobs = 0
+    while ($jobs | Where-Object { $_.State -eq 'Running' }) {
+        $completedJobs = ($jobs | Where-Object { $_.State -eq 'Completed' }).Count
+        Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Status "Completed: $completedJobs of $($subscriptions.Count)" -PercentComplete (($completedJobs / $subscriptions.Count) * 100)
+        Start-Sleep -Milliseconds 500
+    }
+    
+    Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Completed
+    
+    # Collect results from all jobs
+    foreach ($job in $jobs) {
+        try {
+            if ($job.State -eq 'Failed') {
+                Write-Warning "Job '$($job.Name)' failed"
+                Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                continue
+            }
+            
+            $jobResults = Receive-Job -Job $job -ErrorAction Stop
+            
+            if ($jobResults) {
+                if ($jobResults -isnot [System.Array]) {
+                    $jobResults = @($jobResults)
+                }
+                
+                foreach ($result in $jobResults) {
+                    if ($null -ne $result) {
+                        if ($result -is [TestResult]) {
+                            $allResults.Add($result)
+                        }
+                        elseif ($result -is [PSCustomObject]) {
+                            $allResults.Add([TestResult]$result)
+                        }
                     }
                 }
             }
         }
-        else {
-            Write-Verbose "No VMs found in subscription $($subscription.Name)"
+        catch {
+            Write-Warning "Error receiving results from job '$($job.Name)': $($_.Exception.Message)"
+        }
+        finally {
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
         }
     }
     
-    return $allResults
+    return @($allResults)
 }

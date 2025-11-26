@@ -26,8 +26,8 @@ function Export-AzAuditorReport {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory, ValueFromPipeline)]
-        [array]$Results,
+        [Parameter(Mandatory)]
+        $Results,
         
         [Parameter()]
         [string]$OutputPath,
@@ -37,6 +37,9 @@ function Export-AzAuditorReport {
     )
     
     begin {
+        # Suppress JSON serialization depth warnings
+        $WarningPreference = 'SilentlyContinue'
+        
         if (-not $OutputPath) {
             $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
             $OutputPath = Join-Path (Get-Location) "AzureAuditReport_$timestamp.html"
@@ -255,6 +258,14 @@ function Export-AzAuditorReport {
             background: #FFFFFF;
             border: 1px solid #E5E7EB;
             padding: 24px;
+            height: 350px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .chart-container canvas {
+            max-height: 280px;
+            flex: 1;
         }
         
         .chart-header {
@@ -303,6 +314,35 @@ function Export-AzAuditorReport {
             text-transform: uppercase;
             letter-spacing: 0.5px;
             border-bottom: 1px solid #E5E7EB;
+        }
+        
+        .column-filter {
+            display: block;
+            width: 100%;
+            margin-top: 8px;
+            padding: 6px 10px;
+            font-size: 13px;
+            color: #374151;
+            background-color: #F9FAFB;
+            border: 1px solid #D1D5DB;
+            border-radius: 4px;
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: 400;
+            cursor: pointer;
+            appearance: auto;
+        }
+        
+        .column-filter:hover {
+            border-color: #9CA3AF;
+            background-color: #FFFFFF;
+        }
+        
+        .column-filter:focus {
+            outline: none;
+            border-color: #2563EB;
+            background-color: #FFFFFF;
+            box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
         }
         
         td {
@@ -594,13 +634,33 @@ function Export-AzAuditorReport {
                         <div class="table-header">
                             <div class="table-title">Test Results</div>
                         </div>
-                        <table id="${categoryName}Table">
+                        <table id="${categoryName}Table" class="filterable-table">
                 <thead>
                     <tr>
-                        <th>Resource Name</th>
-                        <th>Test</th>
-                        <th>Status</th>
-                        <th>Subscription</th>
+                        <th>
+                            Resource Name
+                            <select class="column-filter" data-column="0" onchange="filterTable('${categoryName}Table')">
+                                <option value="">All</option>
+                            </select>
+                        </th>
+                        <th>
+                            Test
+                            <select class="column-filter" data-column="1" onchange="filterTable('${categoryName}Table')">
+                                <option value="">All</option>
+                            </select>
+                        </th>
+                        <th>
+                            Status
+                            <select class="column-filter" data-column="2" onchange="syncStatusButtons('${categoryName}Table'); filterTable('${categoryName}Table')">
+                                <option value="">All</option>
+                            </select>
+                        </th>
+                        <th>
+                            Subscription
+                            <select class="column-filter" data-column="3" onchange="filterTable('${categoryName}Table')">
+                                <option value="">All</option>
+                            </select>
+                        </th>
                         <th>Details</th>
                     </tr>
                 </thead>
@@ -689,26 +749,49 @@ function Export-AzAuditorReport {
         }
         
         // Filter results
+        // Sync button states with Status dropdown
+        function syncStatusButtons(tableId) {
+            const table = document.getElementById(tableId);
+            const statusDropdown = table.querySelector('thead .column-filter[data-column="2"]');
+            const category = tableId.replace('Table', '');
+            const filterBar = document.querySelector('#' + category + ' .filter-bar');
+            if (!filterBar) return;
+            
+            const buttons = filterBar.querySelectorAll('.filter-btn');
+            const statusValue = statusDropdown.value;
+            
+            buttons.forEach(btn => btn.classList.remove('active'));
+            
+            if (statusValue === '') {
+                buttons[0].classList.add('active'); // All Results
+            } else if (statusValue === 'Pass') {
+                buttons[1].classList.add('active'); // Passed Only
+            } else if (statusValue === 'Fail') {
+                buttons[2].classList.add('active'); // Failed Only
+            }
+        }
+        
+        // Filter results by status buttons - updates the Status dropdown and triggers column filtering
         function filterResults(category, filter) {
             const table = document.getElementById(category + 'Table');
-            const rows = table.querySelectorAll('.result-row');
             const buttons = document.querySelector('#' + category + ' .filter-bar').querySelectorAll('.filter-btn');
+            const statusDropdown = table.querySelector('thead .column-filter[data-column="2"]');
             
+            // Update button active state
             buttons.forEach(btn => btn.classList.remove('active'));
             event.currentTarget.classList.add('active');
             
-            rows.forEach(row => {
-                const status = row.getAttribute('data-status');
-                if (filter === 'all') {
-                    row.style.display = '';
-                } else if (filter === 'pass' && status === 'Pass') {
-                    row.style.display = '';
-                } else if (filter === 'fail' && status === 'Fail') {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
+            // Update the Status dropdown to match button selection
+            if (filter === 'all') {
+                statusDropdown.value = '';
+            } else if (filter === 'pass') {
+                statusDropdown.value = 'Pass';
+            } else if (filter === 'fail') {
+                statusDropdown.value = 'Fail';
+            }
+            
+            // Trigger the unified filter function that respects all column filters
+            filterTable(category + 'Table');
         }
         
         // Overall Pass/Fail Chart
@@ -725,19 +808,17 @@ function Export-AzAuditorReport {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
                         position: 'bottom',
                         labels: {
-                            font: { size: 14 },
-                            padding: 20
+                            font: { size: 12 },
+                            padding: 10
                         }
                     },
                     title: {
-                        display: true,
-                        text: 'Overall Compliance Status',
-                        font: { size: 18, weight: 'bold' },
-                        padding: 20
+                        display: false
                     }
                 }
             }
@@ -764,30 +845,157 @@ function Export-AzAuditorReport {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 plugins: {
                     legend: {
                         position: 'bottom',
                         labels: {
-                            font: { size: 14 },
-                            padding: 20
+                            font: { size: 12 },
+                            padding: 10
                         }
                     },
                     title: {
-                        display: true,
-                        text: 'Results by Category',
-                        font: { size: 18, weight: 'bold' },
-                        padding: 20
+                        display: false
                     }
                 },
                 scales: {
                     y: {
                         beginAtZero: true,
                         ticks: {
-                            stepSize: 1
+                            stepSize: 1,
+                            font: { size: 11 }
+                        }
+                    },
+                    x: {
+                        ticks: {
+                            font: { size: 11 }
                         }
                     }
                 }
             }
+        });
+        
+        // Populate filter dropdowns with unique values from table
+        function populateFilters(tableId) {
+            const table = document.getElementById(tableId);
+            const rows = table.querySelectorAll('tbody tr');
+            const filterSelects = table.querySelectorAll('thead .column-filter');
+            
+            filterSelects.forEach(select => {
+                const columnIndex = parseInt(select.getAttribute('data-column'));
+                const uniqueValues = new Set();
+                
+                // Collect unique values from this column
+                rows.forEach(row => {
+                    const cells = row.querySelectorAll('td');
+                    if (cells.length > columnIndex) {
+                        let cellText = cells[columnIndex].textContent.trim();
+                        let displayText = cellText;
+                        
+                        // For Resource Name column, extract just the name from <strong> tag
+                        if (columnIndex === 0) {
+                            const strongTag = cells[columnIndex].querySelector('strong');
+                            cellText = strongTag ? strongTag.textContent.trim() : cellText;
+                            displayText = cellText;
+                        }
+                        // For Test column, extract name from <strong> and description from <small>
+                        else if (columnIndex === 1) {
+                            const strongTag = cells[columnIndex].querySelector('strong');
+                            const smallTag = cells[columnIndex].querySelector('small');
+                            const testName = strongTag ? strongTag.textContent.trim() : '';
+                            const testDesc = smallTag ? smallTag.textContent.trim() : '';
+                            cellText = testName; // Filter value (just test name)
+                            displayText = testDesc ? testName + ' | ' + testDesc : testName; // Display with delimiter
+                        }
+                        // For Status column, extract just Pass/Fail text
+                        else if (columnIndex === 2) {
+                            cellText = cellText.includes('Pass') ? 'Pass' : 'Fail';
+                            displayText = cellText;
+                        }
+                        // For Subscription column, extract from <small> tag
+                        else if (columnIndex === 3) {
+                            const smallTag = cells[columnIndex].querySelector('small');
+                            cellText = smallTag ? smallTag.textContent.trim() : cellText;
+                            displayText = cellText;
+                        }
+                        
+                        uniqueValues.add(JSON.stringify({ value: cellText, display: displayText }));
+                    }
+                });
+                
+                // Sort values and populate dropdown
+                const sortedValues = Array.from(uniqueValues).map(v => JSON.parse(v)).sort((a, b) => a.display.localeCompare(b.display));
+                sortedValues.forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = item.value;
+                    option.textContent = item.display;
+                    select.appendChild(option);
+                });
+            });
+        }
+        
+        // Column filtering function - supports multiple simultaneous filters
+        function filterTable(tableId) {
+            const table = document.getElementById(tableId);
+            const rows = table.querySelectorAll('tbody tr');
+            const filterSelects = table.querySelectorAll('thead .column-filter');
+            
+            // Build filter criteria from all selects
+            const filters = [];
+            filterSelects.forEach(select => {
+                const value = select.value.trim();
+                const columnIndex = parseInt(select.getAttribute('data-column'));
+                if (value) {
+                    filters.push({ index: columnIndex, value: value });
+                }
+            });
+            
+            // Apply all filters to each row
+            rows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                let showRow = true;
+                
+                // Check each filter
+                for (const filter of filters) {
+                    if (cells.length > filter.index) {
+                        let cellText = cells[filter.index].textContent.trim();
+                        
+                        // For Resource Name column, extract from <strong> tag
+                        if (filter.index === 0) {
+                            const strongTag = cells[filter.index].querySelector('strong');
+                            cellText = strongTag ? strongTag.textContent.trim() : cellText;
+                        }
+                        // For Test column, extract from <strong> tag
+                        else if (filter.index === 1) {
+                            const strongTag = cells[filter.index].querySelector('strong');
+                            cellText = strongTag ? strongTag.textContent.trim() : cellText;
+                        }
+                        // For Status column, extract Pass/Fail
+                        else if (filter.index === 2) {
+                            cellText = cellText.includes('Pass') ? 'Pass' : 'Fail';
+                        }
+                        // For Subscription column, extract from <small> tag
+                        else if (filter.index === 3) {
+                            const smallTag = cells[filter.index].querySelector('small');
+                            cellText = smallTag ? smallTag.textContent.trim() : cellText;
+                        }
+                        
+                        if (cellText !== filter.value) {
+                            showRow = false;
+                            break;
+                        }
+                    }
+                }
+                
+                row.style.display = showRow ? '' : 'none';
+            });
+        }
+        
+        // Initialize all filterable tables on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.querySelectorAll('.filterable-table').forEach(table => {
+                populateFilters(table.id);
+            });
         });
     </script>
 </body>

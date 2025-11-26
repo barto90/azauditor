@@ -11,16 +11,21 @@ function Test-Database {
     [CmdletBinding()]
     param()
     
-    # Collect all results
-    $allResults = @()
+    # Get module root and load TestResult class
+    $moduleRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $classPath = Join-Path $moduleRoot "Classes\TestResult.ps1"
+    . $classPath
+    
+    # Collect all results (must be after TestResult class is loaded)
+    $allResults = [System.Collections.Generic.List[TestResult]]::new()
     
     # Discover all database test files in subfolders (SQLDatabase, CosmosDB, PostgreSQL, MySQL, etc.)
-    $databaseTestFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
-        Where-Object { $_.DirectoryName -ne $PSScriptRoot }  # Exclude the orchestrator itself
+    $databaseTestFiles = @(Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
+        Where-Object { $_.DirectoryName -ne $PSScriptRoot })  # Exclude the orchestrator itself
     
     if ($databaseTestFiles.Count -eq 0) {
         Write-Warning "No database test files found in $PSScriptRoot subfolders"
-        return $allResults
+        return @()
     }
     
     Write-Verbose "Discovered $($databaseTestFiles.Count) database test file(s)"
@@ -31,121 +36,172 @@ function Test-Database {
         . $testFile.FullName
     }
     
-    # Get all subscriptions and iterate
-    Get-AzSubscription | ForEach-Object {
-        $subscription = $_
-        Set-AzContext $_.Id | Out-Null
+    # Get current context to determine active tenant
+    $currentContext = Get-AzContext
+    if (-not $currentContext) {
+        Write-Warning "No Azure context found. Please run Connect-AzAccount first."
+        return @()
+    }
+    
+    # Get subscriptions filtered by current tenant
+    $subscriptions = @(Get-AzSubscription -TenantId $currentContext.Tenant.Id)
+    if ($subscriptions.Count -eq 0) {
+        Write-Warning "No subscriptions found in tenant: $($currentContext.Tenant.Id)"
+        return @()
+    }
+    
+    Write-Verbose "Found $($subscriptions.Count) subscription(s) in tenant: $($currentContext.Tenant.Id)"
+    
+    # Prepare test file paths for jobs
+    $testFilePaths = $databaseTestFiles | ForEach-Object { $_.FullName }
+    
+    # Scriptblock for processing a single subscription in a job
+    $jobScriptBlock = {
+        param(
+            [PSCustomObject]$Subscription,
+            [string[]]$TestFilePaths,
+            [string]$ClassPath
+        )
         
-        Write-Verbose "Processing subscription: $($subscription.Name)"
-        
-        # Get all SQL Servers and their databases once for this subscription
-        $sqlServers = @(Get-AzSqlServer -ErrorAction SilentlyContinue)
-        $sqlDatabases = @()
-        
-        if ($sqlServers.Count -gt 0 -and $null -ne $sqlServers[0]) {
-            Write-Verbose "Found $($sqlServers.Count) SQL Server(s) in subscription $($subscription.Name)"
+        try {
+            Import-Module Az.Accounts, Az.Sql, Az.CosmosDB, Az.PostgreSql, Az.MySql -ErrorAction Stop | Out-Null
+            . $ClassPath
+            $null = Set-AzContext -SubscriptionId $Subscription.Id -Force -ErrorAction Stop
             
-            foreach ($sqlServer in $sqlServers) {
-                $databases = Get-AzSqlDatabase -ServerName $sqlServer.ServerName -ResourceGroupName $sqlServer.ResourceGroupName -ErrorAction SilentlyContinue
-                if ($databases) {
-                    # Filter out 'master' database
-                    $sqlDatabases += $databases | Where-Object { $_.DatabaseName -ne 'master' }
+            foreach ($testFilePath in $TestFilePaths) {
+                . $testFilePath
+            }
+            
+            $sqlServers = @(Get-AzSqlServer -ErrorAction SilentlyContinue | Where-Object { $_.ResourceId -like "/subscriptions/$($Subscription.Id)/*" })
+            $resourceGroups = @(Get-AzResourceGroup -ErrorAction SilentlyContinue | Where-Object { $_.ResourceId -like "/subscriptions/$($Subscription.Id)/*" })
+            
+            $sqlDatabases = @()
+            if ($sqlServers.Count -gt 0) {
+                foreach ($sqlServer in $sqlServers) {
+                    $databases = Get-AzSqlDatabase -ServerName $sqlServer.ServerName -ResourceGroupName $sqlServer.ResourceGroupName -ErrorAction SilentlyContinue
+                    if ($databases) {
+                        $sqlDatabases += $databases | Where-Object { $_.DatabaseName -ne 'master' }
+                    }
                 }
             }
             
-            Write-Verbose "Found $($sqlDatabases.Count) SQL Database(s) in subscription $($subscription.Name)"
-        }
-        
-        # Get all CosmosDB accounts once for this subscription
-        $cosmosDBAccounts = @()
-        $resourceGroups = Get-AzResourceGroup -ErrorAction SilentlyContinue
-        
-        foreach ($rg in $resourceGroups) {
-            $cosmosAccounts = Get-AzCosmosDBAccount -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
-            if ($cosmosAccounts) {
-                $cosmosDBAccounts += $cosmosAccounts
-            }
-        }
-        
-        if ($cosmosDBAccounts.Count -gt 0 -and $null -ne $cosmosDBAccounts[0]) {
-            Write-Verbose "Found $($cosmosDBAccounts.Count) CosmosDB account(s) in subscription $($subscription.Name)"
-        }
-        
-        # Get all PostgreSQL servers once for this subscription
-        $postgreSQLServers = @()
-        
-        foreach ($rg in $resourceGroups) {
-            $pgServers = Get-AzPostgreSqlServer -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
-            if ($pgServers) {
-                $postgreSQLServers += $pgServers
-            }
-        }
-        
-        if ($postgreSQLServers.Count -gt 0 -and $null -ne $postgreSQLServers[0]) {
-            Write-Verbose "Found $($postgreSQLServers.Count) PostgreSQL server(s) in subscription $($subscription.Name)"
-        }
-        
-        # Get all MySQL servers once for this subscription
-        $mySQLServers = @()
-        
-        foreach ($rg in $resourceGroups) {
-            $mysqlSrvs = Get-AzMySqlServer -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
-            if ($mysqlSrvs) {
-                $mySQLServers += $mysqlSrvs
-            }
-        }
-        
-        if ($mySQLServers.Count -gt 0 -and $null -ne $mySQLServers[0]) {
-            Write-Verbose "Found $($mySQLServers.Count) MySQL server(s) in subscription $($subscription.Name)"
-        }
-        
-        # Run each discovered test function with appropriate parameters
-        foreach ($testFile in $databaseTestFiles) {
-            $functionName = $testFile.BaseName
+            $cosmosDBAccounts = @()
+            $postgreSQLServers = @()
+            $mySQLServers = @()
             
-            if (Get-Command $functionName -ErrorAction SilentlyContinue) {
-                Write-Verbose "Executing test: $functionName"
+            foreach ($rg in $resourceGroups) {
+                $cosmosAccounts = Get-AzCosmosDBAccount -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
+                if ($cosmosAccounts) { $cosmosDBAccounts += $cosmosAccounts }
                 
-                try {
-                    $testResults = $null
-                    
-                    # Route to appropriate test based on function name
-                    switch -Wildcard ($functionName) {
-                        "*SQLDatabase*" {
-                            if ($sqlDatabases.Count -gt 0) {
-                                $testResults = & $functionName -SQLDatabases $sqlDatabases -Subscription $subscription
+                $pgServers = Get-AzPostgreSqlServer -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
+                if ($pgServers) { $postgreSQLServers += $pgServers }
+                
+                $mysqlSrvs = Get-AzMySqlServer -ResourceGroupName $rg.ResourceGroupName -ErrorAction SilentlyContinue
+                if ($mysqlSrvs) { $mySQLServers += $mysqlSrvs }
+            }
+            
+            $subscriptionResults = @()
+            
+            foreach ($testFilePath in $TestFilePaths) {
+                $functionName = (Get-Item $testFilePath).BaseName
+                
+                if (Get-Command $functionName -ErrorAction SilentlyContinue) {
+                    try {
+                        $testResults = $null
+                        
+                        switch -Wildcard ($functionName) {
+                            "*SQLDatabase*" {
+                                if ($sqlDatabases.Count -gt 0) {
+                                    $testResults = & $functionName -SQLDatabases $sqlDatabases -Subscription $Subscription
+                                }
+                            }
+                            "*CosmosDB*" {
+                                if ($cosmosDBAccounts.Count -gt 0) {
+                                    $testResults = & $functionName -CosmosDBAccounts $cosmosDBAccounts -Subscription $Subscription
+                                }
+                            }
+                            "*PostgreSQL*" {
+                                if ($postgreSQLServers.Count -gt 0) {
+                                    $testResults = & $functionName -PostgreSQLServers $postgreSQLServers -Subscription $Subscription
+                                }
+                            }
+                            "*MySQL*" {
+                                if ($mySQLServers.Count -gt 0) {
+                                    $testResults = & $functionName -MySQLServers $mySQLServers -Subscription $Subscription
+                                }
                             }
                         }
-                        "*CosmosDB*" {
-                            if ($cosmosDBAccounts.Count -gt 0) {
-                                $testResults = & $functionName -CosmosDBAccounts $cosmosDBAccounts -Subscription $subscription
-                            }
-                        }
-                        "*PostgreSQL*" {
-                            if ($postgreSQLServers.Count -gt 0) {
-                                $testResults = & $functionName -PostgreSQLServers $postgreSQLServers -Subscription $subscription
-                            }
-                        }
-                        "*MySQL*" {
-                            if ($mySQLServers.Count -gt 0) {
-                                $testResults = & $functionName -MySQLServers $mySQLServers -Subscription $subscription
-                            }
+                        
+                        if ($testResults) {
+                            $subscriptionResults += $testResults
                         }
                     }
-                    
-                    if ($testResults) {
-                        $allResults += $testResults
-                        Write-Verbose "Test completed: $functionName - Collected $($testResults.Count) result(s)"
+                    catch {
+                        Write-Warning "Error executing test '$functionName' in subscription $($Subscription.Name): $($_.Exception.Message)"
                     }
-                }
-                catch {
-                    Write-Warning "Error executing test '$functionName': $($_.Exception.Message)"
-                    continue
                 }
             }
+            
+            return $subscriptionResults
+        }
+        catch {
+            Write-Warning "Error processing subscription '$($Subscription.Name)': $($_.Exception.Message)"
+            return @()
         }
     }
     
-    return $allResults
+    # Start jobs for all subscriptions
+    $jobs = @()
+    foreach ($subscription in $subscriptions) {
+        $job = Start-Job -ScriptBlock $jobScriptBlock -ArgumentList $subscription, $testFilePaths, $classPath -Name "Database-$($subscription.Name)"
+        $jobs += $job
+    }
+    
+    # Wait for all jobs to complete
+    $completedJobs = 0
+    while ($jobs | Where-Object { $_.State -eq 'Running' }) {
+        $completedJobs = ($jobs | Where-Object { $_.State -eq 'Completed' }).Count
+        Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Status "Completed: $completedJobs of $($subscriptions.Count)" -PercentComplete (($completedJobs / $subscriptions.Count) * 100)
+        Start-Sleep -Milliseconds 500
+    }
+    
+    Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Completed
+    
+    # Collect results from all jobs
+    foreach ($job in $jobs) {
+        try {
+            if ($job.State -eq 'Failed') {
+                Write-Warning "Job '$($job.Name)' failed"
+                Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                continue
+            }
+            
+            $jobResults = Receive-Job -Job $job -ErrorAction Stop
+            
+            if ($jobResults) {
+                if ($jobResults -isnot [System.Array]) {
+                    $jobResults = @($jobResults)
+                }
+                
+                foreach ($result in $jobResults) {
+                    if ($null -ne $result) {
+                        if ($result -is [TestResult]) {
+                            $allResults.Add($result)
+                        }
+                        elseif ($result -is [PSCustomObject]) {
+                            $allResults.Add([TestResult]$result)
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Warning "Error receiving results from job '$($job.Name)': $($_.Exception.Message)"
+        }
+        finally {
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    return @($allResults)
 }
-

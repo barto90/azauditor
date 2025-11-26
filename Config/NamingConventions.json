@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Naming convention configuration for Azure resources. Define regex patterns to validate resource names.",
+  "version": "1.0",
+  "globalSettings": {
+    "enabled": true,
+    "defaultCaseSensitive": false
+  },
+  "resourceTypes": {
+    "Microsoft.Compute/virtualMachines": {
+      "enabled": true,
+      "description": "Virtual Machine naming conventions",
+      "caseSensitive": false,
+      "patterns": [
+        {
+          "name": "Standard Azure VM Pattern",
+          "description": "Format: {prefix}{location}{type}{number} - e.g., azweusr001 (Azure, West Europe, Server, 001)",
+          "regex": "^az[a-z]{2,4}[a-z]{2}[0-9]{3}$",
+          "examples": [
+            "azweusr001",
+            "azeusvm002",
+            "azukssrweb015"
+          ]
+        }
+      ]
+    },
+    "Microsoft.Storage/storageAccounts": {
+      "enabled": false,
+      "description": "Storage Account naming conventions (3-24 lowercase letters and numbers)",
+      "caseSensitive": false,
+      "patterns": []
+    },
+    "Microsoft.Network/virtualNetworks": {
+      "enabled": false,
+      "description": "Virtual Network naming conventions",
+      "caseSensitive": false,
+      "patterns": []
+    }
+  }
+}
+

@@ -50,7 +50,9 @@ function Update-AzAuditorTests {
             # Fetch remote manifest
             Write-Host "Fetching latest test manifest..." -ForegroundColor Yellow
             $remoteManifestUrl = "$repoUrl/manifest.json"
-            $remoteManifest = Invoke-RestMethod -Uri $remoteManifestUrl -ErrorAction Stop
+            # Use cache-busting header to avoid GitHub CDN stale data
+            $headers = @{ 'Cache-Control' = 'no-cache' }
+            $remoteManifest = Invoke-RestMethod -Uri $remoteManifestUrl -Headers $headers -ErrorAction Stop
             
             Write-Host "✓ Remote version: $($remoteManifest.version)" -ForegroundColor Green
             

@@ -68,7 +68,7 @@ The `manifest.json` file tracks test versions:
 ## How It Works
 
 1. **First Run**: Uses bundled tests, suggests running `Update-AzAuditorTests`
-2. **After Update**: Downloads tests to `$env:APPDATA\AzAuditor\Tests\`
+2. **After Update**: Downloads tests to `\Tests\`
 3. **Subsequent Runs**: Uses downloaded tests (always latest)
 4. **Offline**: Falls back to bundled tests if no internet connection
 
@@ -124,7 +124,7 @@ Planned for future versions:
 
 **Using old tests?**
 - Run `Get-AzAuditorTestInfo` to check version
-- Delete local cache: `Remove-Item "$env:APPDATA\AzAuditor" -Recurse -Force`
+- Delete folders underneath the 'Tests' Directory
 - Run `Update-AzAuditorTests` again
 
 **Offline usage?**

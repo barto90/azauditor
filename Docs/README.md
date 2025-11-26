@@ -11,12 +11,14 @@ This directory contains comprehensive documentation for all Azure Auditor compli
 
 ## Test Categories Overview
 
-### Compute (4 tests)
-Tests focused on Virtual Machine high availability and performance:
+### Compute (6 tests)
+Tests focused on Virtual Machine and Scale Set high availability and performance:
 - VM Availability Zones
 - VM Availability Sets
 - VM Hyper-V Generation
 - VM Workload Data Separation
+- VMSS Automatic Repairs
+- VMSS Overprovisioning
 
 ### Networking (2 tests)
 Tests focused on Load Balancer reliability:
@@ -40,8 +42,9 @@ All tests are aligned with the [Azure Well-Architected Framework](https://docs.m
 
 | Pillar | Test Count | Focus |
 |--------|------------|-------|
-| **Reliability** | 10 | High availability, disaster recovery, redundancy, fault isolation |
-| **Performance Efficiency** | 1 | Resource optimization, modern configurations |
+| **Reliability** | 11 | High availability, disaster recovery, redundancy, fault isolation, self-healing |
+| **Performance Efficiency** | 2 | Resource optimization, modern configurations, deployment speed |
+| **Cost Optimization** | 1 | Efficient resource usage |
 
 ## Test Severity Levels
 

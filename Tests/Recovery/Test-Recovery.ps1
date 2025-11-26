@@ -11,16 +11,21 @@ function Test-Recovery {
     [CmdletBinding()]
     param()
     
-    # Collect all results
-    $allResults = @()
+    # Get module root and load TestResult class
+    $moduleRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+    $classPath = Join-Path $moduleRoot "Classes\TestResult.ps1"
+    . $classPath
+    
+    # Collect all results (must be after TestResult class is loaded)
+    $allResults = [System.Collections.Generic.List[TestResult]]::new()
     
     # Discover all recovery test files in subfolders (SiteRecovery, Backup, etc.)
-    $recoveryTestFiles = Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
-        Where-Object { $_.DirectoryName -ne $PSScriptRoot }  # Exclude the orchestrator itself
+    $recoveryTestFiles = @(Get-ChildItem -Path $PSScriptRoot -Recurse -Filter "Test-*.ps1" -File | 
+        Where-Object { $_.DirectoryName -ne $PSScriptRoot })  # Exclude the orchestrator itself
     
     if ($recoveryTestFiles.Count -eq 0) {
         Write-Warning "No recovery test files found in $PSScriptRoot subfolders"
-        return $allResults
+        return @()
     }
     
     Write-Verbose "Discovered $($recoveryTestFiles.Count) recovery test file(s)"
@@ -31,94 +36,162 @@ function Test-Recovery {
         . $testFile.FullName
     }
     
-    # Get all subscriptions and iterate
-    Get-AzSubscription | ForEach-Object {
-        $subscription = $_
-        Set-AzContext $_.Id | Out-Null
+    # Get current context to determine active tenant
+    $currentContext = Get-AzContext
+    if (-not $currentContext) {
+        Write-Warning "No Azure context found. Please run Connect-AzAccount first."
+        return @()
+    }
+    
+    # Get subscriptions filtered by current tenant
+    $subscriptions = @(Get-AzSubscription -TenantId $currentContext.Tenant.Id)
+    if ($subscriptions.Count -eq 0) {
+        Write-Warning "No subscriptions found in tenant: $($currentContext.Tenant.Id)"
+        return @()
+    }
+    
+    Write-Verbose "Found $($subscriptions.Count) subscription(s) in tenant: $($currentContext.Tenant.Id)"
+    
+    # Prepare test file paths for jobs
+    $testFilePaths = $recoveryTestFiles | ForEach-Object { $_.FullName }
+    
+    # Scriptblock for processing a single subscription in a job
+    $jobScriptBlock = {
+        param(
+            [PSCustomObject]$Subscription,
+            [string[]]$TestFilePaths,
+            [string]$ClassPath
+        )
         
-        Write-Verbose "Processing subscription: $($subscription.Name)"
-        
-        # Get all Recovery Services Vaults once for this subscription
-        $recoveryVaults = @(Get-AzRecoveryServicesVault)
-        
-        # Get all VMs once for this subscription (needed for cross-referencing)
-        $vms = @(Get-AzVM)
-        
-        # Collect protected items from all vaults
-        $protectedItems = @()
-        if ($recoveryVaults.Count -gt 0 -and $null -ne $recoveryVaults[0]) {
-            Write-Verbose "Found $($recoveryVaults.Count) Recovery Services Vault(s) in subscription $($subscription.Name)"
+        try {
+            Import-Module Az.Accounts, Az.Compute, Az.RecoveryServices -ErrorAction Stop | Out-Null
+            . $ClassPath
+            $null = Set-AzContext -SubscriptionId $Subscription.Id -Force -ErrorAction Stop
             
-            foreach ($vault in $recoveryVaults) {
-                try {
-                    # Set vault context
-                    Set-AzRecoveryServicesVaultContext -Vault $vault | Out-Null
-                    Write-Verbose "Processing vault: $($vault.Name)"
-                    
-                    # Get ASR fabrics for this vault
-                    $fabrics = Get-AzRecoveryServicesAsrFabric -ErrorAction SilentlyContinue
-                    
-                    if ($fabrics) {
-                        foreach ($fabric in $fabrics) {
-                            # Get protection containers for this fabric
-                            $containers = Get-AzRecoveryServicesAsrProtectionContainer -Fabric $fabric -ErrorAction SilentlyContinue
-                            
-                            if ($containers) {
-                                foreach ($container in $containers) {
-                                    # Get protected items from this container
-                                    $containerProtectedItems = Get-AzRecoveryServicesAsrReplicationProtectedItem -ProtectionContainer $container -ErrorAction SilentlyContinue
-                                    
-                                    if ($containerProtectedItems) {
-                                        $protectedItems += $containerProtectedItems
-                                        Write-Verbose "Found $(@($containerProtectedItems).Count) protected item(s) in container $($container.Name)"
+            foreach ($testFilePath in $TestFilePaths) {
+                . $testFilePath
+            }
+            
+            $recoveryVaults = @(Get-AzRecoveryServicesVault -ErrorAction SilentlyContinue | Where-Object { $_.ID -like "/subscriptions/$($Subscription.Id)/*" })
+            $vms = @(Get-AzVM -ErrorAction SilentlyContinue | Where-Object { $_.Id -like "/subscriptions/$($Subscription.Id)/*" })
+            
+            $protectedItems = @()
+            if ($recoveryVaults.Count -gt 0) {
+                foreach ($vault in $recoveryVaults) {
+                    try {
+                        if ($vault.ResourceGroupName) {
+                            $vaultRG = Get-AzResourceGroup -Name $vault.ResourceGroupName -ErrorAction SilentlyContinue
+                            if (-not $vaultRG) {
+                                continue
+                            }
+                        }
+                        
+                        $null = Set-AzContext -SubscriptionId $Subscription.Id -Force -ErrorAction Stop
+                        Set-AzRecoveryServicesVaultContext -Vault $vault -ErrorAction Stop | Out-Null
+                        
+                        $fabrics = Get-AzRecoveryServicesAsrFabric -ErrorAction SilentlyContinue
+                        if ($fabrics) {
+                            foreach ($fabric in $fabrics) {
+                                $containers = Get-AzRecoveryServicesAsrProtectionContainer -Fabric $fabric -ErrorAction SilentlyContinue
+                                if ($containers) {
+                                    foreach ($container in $containers) {
+                                        $containerProtectedItems = Get-AzRecoveryServicesAsrReplicationProtectedItem -ProtectionContainer $container -ErrorAction SilentlyContinue
+                                        if ($containerProtectedItems) {
+                                            $protectedItems += $containerProtectedItems
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-                catch {
-                    Write-Warning "Error querying vault '$($vault.Name)': $($_.Exception.Message)"
-                    continue
-                }
-            }
-        }
-        else {
-            Write-Verbose "No Recovery Services Vaults found in subscription $($subscription.Name)"
-        }
-        
-        # Run tests only if we have VMs
-        if ($vms.Count -gt 0 -and $null -ne $vms[0]) {
-            Write-Verbose "Found $($vms.Count) VM(s) in subscription $($subscription.Name)"
-            
-            # Run each discovered test function
-            foreach ($testFile in $recoveryTestFiles) {
-                $functionName = $testFile.BaseName
-                
-                if (Get-Command $functionName -ErrorAction SilentlyContinue) {
-                    Write-Verbose "Executing test: $functionName"
-                    
-                    try {
-                        # Call test function with VMs, Protected Items, and Subscription
-                        $testResults = & $functionName -VMs $vms -ProtectedItems $protectedItems -Subscription $subscription
-                        
-                        if ($testResults) {
-                            $allResults += $testResults
-                            Write-Verbose "Test completed: $functionName - Collected $($testResults.Count) result(s)"
+                    catch {
+                        if ($_.Exception.Message -notlike "*could not be found*") {
+                            Write-Warning "Error querying vault '$($vault.Name)' in subscription $($Subscription.Name): $($_.Exception.Message)"
                         }
                     }
-                    catch {
-                        Write-Warning "Error executing test '$functionName': $($_.Exception.Message)"
-                        continue
+                }
+            }
+            
+            $subscriptionResults = @()
+            
+            if ($vms.Count -gt 0) {
+                foreach ($testFilePath in $TestFilePaths) {
+                    $functionName = (Get-Item $testFilePath).BaseName
+                    
+                    if (Get-Command $functionName -ErrorAction SilentlyContinue) {
+                        try {
+                            $testResults = & $functionName -VMs $vms -ProtectedItems $protectedItems -Subscription $Subscription
+                            if ($testResults) {
+                                $subscriptionResults += $testResults
+                            }
+                        }
+                        catch {
+                            Write-Warning "Error executing test '$functionName' in subscription $($Subscription.Name): $($_.Exception.Message)"
+                        }
                     }
                 }
             }
+            
+            return $subscriptionResults
         }
-        else {
-            Write-Verbose "No VMs found in subscription $($subscription.Name)"
+        catch {
+            Write-Warning "Error processing subscription '$($Subscription.Name)': $($_.Exception.Message)"
+            return @()
         }
     }
     
-    return $allResults
+    # Start jobs for all subscriptions
+    $jobs = @()
+    foreach ($subscription in $subscriptions) {
+        $job = Start-Job -ScriptBlock $jobScriptBlock -ArgumentList $subscription, $testFilePaths, $classPath -Name "Recovery-$($subscription.Name)"
+        $jobs += $job
+    }
+    
+    # Wait for all jobs to complete
+    $completedJobs = 0
+    while ($jobs | Where-Object { $_.State -eq 'Running' }) {
+        $completedJobs = ($jobs | Where-Object { $_.State -eq 'Completed' }).Count
+        Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Status "Completed: $completedJobs of $($subscriptions.Count)" -PercentComplete (($completedJobs / $subscriptions.Count) * 100)
+        Start-Sleep -Milliseconds 500
+    }
+    
+    Write-Progress -Activity "Processing Subscriptions (Parallel Jobs)" -Completed
+    
+    # Collect results from all jobs
+    foreach ($job in $jobs) {
+        try {
+            if ($job.State -eq 'Failed') {
+                Write-Warning "Job '$($job.Name)' failed"
+                Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+                continue
+            }
+            
+            $jobResults = Receive-Job -Job $job -ErrorAction Stop
+            
+            if ($jobResults) {
+                if ($jobResults -isnot [System.Array]) {
+                    $jobResults = @($jobResults)
+                }
+                
+                foreach ($result in $jobResults) {
+                    if ($null -ne $result) {
+                        if ($result -is [TestResult]) {
+                            $allResults.Add($result)
+                        }
+                        elseif ($result -is [PSCustomObject]) {
+                            $allResults.Add([TestResult]$result)
+                        }
+                    }
+                }
+            }
+        }
+        catch {
+            Write-Warning "Error receiving results from job '$($job.Name)': $($_.Exception.Message)"
+        }
+        finally {
+            Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    return @($allResults)
 }
-

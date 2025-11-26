@@ -60,7 +60,8 @@ function Get-AzAuditorTestInfo {
             Write-Host ""
             Write-Host "Checking for updates..." -ForegroundColor Gray
             $repoUrl = "https://raw.githubusercontent.com/barto90/azauditor/main"
-            $remoteManifest = Invoke-RestMethod -Uri "$repoUrl/manifest.json" -TimeoutSec 3 -ErrorAction Stop
+            $headers = @{ 'Cache-Control' = 'no-cache' }
+            $remoteManifest = Invoke-RestMethod -Uri "$repoUrl/manifest.json" -Headers $headers -TimeoutSec 3 -ErrorAction Stop
             
             if (Test-Path $localManifestPath) {
                 $localManifest = Get-Content $localManifestPath -Raw | ConvertFrom-Json
