@@ -1,7 +1,9 @@
-1. Create a test for checking [CHECK_HERE]
+1. Create a test for checking checking the VM naming convention
 2. Dont make assumptions, ask questions
 3. Update the markdown if its there with the test, or create a new one (see other tests)
 4. Make sure the test pattern is equally the same as to the test below
+5. make sure in the manifest you have the test defined as with the other tests
+6. if its a new orchestrator make sure to update the Start-AzAuditor as well 
 
 function Test-VMHyperVGeneration {
 

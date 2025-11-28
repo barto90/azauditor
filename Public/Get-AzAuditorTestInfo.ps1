@@ -86,12 +86,24 @@ function Get-AzAuditorTestInfo {
                     
                     if ($newTests.Count -gt 0) {
                         Write-Host "   📥 $($newTests.Count) new test(s)" -ForegroundColor Cyan
+
+                        foreach ($newTest in $newTests) {
+                            Write-Host "   📥 $($newTest.Name) (v$($newTest.Version))" -ForegroundColor Cyan
+                        }
                     }
                     if ($updatedTests.Count -gt 0) {
                         Write-Host "   🔄 $($updatedTests.Count) updated test(s)" -ForegroundColor Yellow
+
+                        foreach ($updatedTest in $updatedTests) {
+                            Write-Host "   🔄 $($updatedTest.Name) ($($updatedTest.OldVersion) → $($updatedTest.NewVersion))" -ForegroundColor Cyan
+                        }
                     }
                     if ($removedTests.Count -gt 0) {
                         Write-Host "   🗑️  $($removedTests.Count) removed test(s)" -ForegroundColor Red
+
+                        foreach ($removedTest in $removedTests) {
+                            Write-Host "   🗑️  $($removedTest.Name)" -ForegroundColor Red
+                        }
                     }
                     
                     Write-Host ""

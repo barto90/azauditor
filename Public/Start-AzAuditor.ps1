@@ -98,6 +98,7 @@ function Start-AzAuditor {
                 'Storage' { '💾' }
                 'Security' { '🔒' }
                 'Governance' { '🔍' }
+                'Identity' { '👤' }
                 default { '📦' }
             }
             Write-Host "  [$($i + 1)] $icon $($availableCategories[$i])" -ForegroundColor Cyan

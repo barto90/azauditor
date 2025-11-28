@@ -690,7 +690,31 @@ function Export-AzAuditorReport {
                                 <div class="details-row"><strong>Timestamp:</strong> $($result.TimeStamp)</div>
                                 <div class="details-row">
                                     <strong>Raw Result:</strong>
-                                    <pre>$($result.RawResult | ConvertTo-Json -Depth 3)</pre>
+                                    <pre>$(
+                                        try {
+                                            if ($null -eq $result.RawResult) {
+                                                'null'
+                                            }
+                                            elseif ($result.RawResult -is [string] -and ($result.RawResult.TrimStart().StartsWith('{') -or $result.RawResult.TrimStart().StartsWith('['))) {
+                                                # Already JSON string, format it nicely
+                                                $result.RawResult | ConvertFrom-Json | ConvertTo-Json -Depth 10 -Compress:$false
+                                            }
+                                            elseif ($result.RawResult -is [string]) {
+                                                $result.RawResult
+                                            }
+                                            else {
+                                                $result.RawResult | ConvertTo-Json -Depth 10 -Compress:$false
+                                            }
+                                        }
+                                        catch {
+                                            if ($result.RawResult -is [string]) {
+                                                $result.RawResult
+                                            }
+                                            else {
+                                                $result.RawResult.ToString()
+                                            }
+                                        }
+                                    )</pre>
                                 </div>
                             </div>
                         </td>

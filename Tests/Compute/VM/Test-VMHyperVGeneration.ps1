@@ -40,6 +40,17 @@ function Test-VMHyperVGeneration {
     foreach ($vm in $VMs) {
         $actualResult = $vm.HyperVGeneration
         
+        # Convert VM object to JSON string for serialization through jobs
+        # This preserves the VM data when passing through Start-Job/Receive-Job
+        $vmJson = $null
+        try {
+            $vmJson = $vm | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        catch {
+            # Fallback if JSON conversion fails
+            $vmJson = $vm | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        
         $result = [TestResult]@{
             ResourceId = $vm.Id
             ResourceName = $vm.Name
@@ -51,7 +62,7 @@ function Test-VMHyperVGeneration {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $actualResult
-            RawResult = $vm
+            RawResult = $vmJson
             ResultStatus = if ($actualResult -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

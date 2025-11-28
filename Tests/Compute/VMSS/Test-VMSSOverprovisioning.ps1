@@ -51,9 +51,17 @@ function Test-VMSSOverprovisioning {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $overprovisioningEnabled
-            RawResult = [PSCustomObject]@{
-                Overprovision = $scaleSet.Overprovision
-            }
+            RawResult = $(
+                $rawResultObj = [PSCustomObject]@{
+                    Overprovision = $scaleSet.Overprovision
+                }
+                try {
+                    $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+                }
+                catch {
+                    ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                }
+            )
             ResultStatus = if ($overprovisioningEnabled -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

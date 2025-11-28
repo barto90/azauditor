@@ -65,6 +65,15 @@ function Test-CosmosDBGeoReplication {
             ConsistencyLevel = $account.DefaultConsistencyLevel
         }
         
+        # Convert RawResult to JSON string for serialization through jobs
+        $rawResultJson = $null
+        try {
+            $rawResultJson = $rawResult | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        catch {
+            $rawResultJson = ($rawResult | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+        }
+        
         $result = [TestResult]@{
             ResourceId = $account.Id
             ResourceName = $account.Name
@@ -76,7 +85,7 @@ function Test-CosmosDBGeoReplication {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $actualResult
-            RawResult = $rawResult
+            RawResult = $rawResultJson
             ResultStatus = if ($actualResult -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

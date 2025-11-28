@@ -27,6 +27,9 @@
     "Networking/LoadBalancer/Test-LoadBalancerHealthProbes.ps1": "1.0.0",
     "Networking/PrivateEndpoint/Test-PaaSPrivateEndpoints.ps1": "1.0.0",
     "Recovery/Test-Recovery.ps1": "1.0.0",
-    "Recovery/SiteRecovery/Test-VMSiteRecovery.ps1": "1.0.0"
+    "Recovery/SiteRecovery/Test-VMSiteRecovery.ps1": "1.0.0",
+    "Identity/Test-Identity.ps1": "1.0.0",
+    "Identity/Authentication/Test-MicrosoftAuthenticator.ps1": "1.0.0",
+    "Identity/Security/Test-EntraSecurityScore.ps1": "1.0.0"
   }
 }

@@ -123,6 +123,22 @@ function Test-PaaSPrivateEndpoints {
                         "No private endpoint configured"
                     }
                     
+                    # Convert RawResult to JSON string for serialization through jobs
+                    $rawResultObj = @{
+                        ResourceType = $resourceTypeName
+                        HasPrivateEndpoint = $hasPrivateEndpoint
+                        PrivateEndpointCount = $privateEndpoints.Count
+                        PrivateEndpoints = $privateEndpointDetails
+                        Location = $resource.Location
+                    }
+                    $rawResultJson = $null
+                    try {
+                        $rawResultJson = ($rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false)
+                    }
+                    catch {
+                        $rawResultJson = ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                    }
+                    
                     $results.Add([TestResult]@{
                         ResourceId = $resource.ResourceId
                         ResourceName = $resource.Name
@@ -135,19 +151,26 @@ function Test-PaaSPrivateEndpoints {
                         TimeStamp = (Get-Date).ToUniversalTime()
                         ExpectedResult = $testMetadata.ExpectedResult
                         ActualResult = $actualResult
-                        RawResult = @{
-                            ResourceType = $resourceTypeName
-                            HasPrivateEndpoint = $hasPrivateEndpoint
-                            PrivateEndpointCount = $privateEndpoints.Count
-                            PrivateEndpoints = $privateEndpointDetails
-                            Location = $resource.Location
-                        }
+                        RawResult = $rawResultJson
                         ResultStatus = if ($passed) { 'Pass' } else { 'Fail' }
                     })
                     
                 }
                 catch {
                     Write-Verbose "Error checking resource $($resource.Name): $($_.Exception.Message)"
+                    
+                    # Convert RawResult to JSON string for serialization through jobs
+                    $rawResultObj = @{
+                        ResourceType = $resourceTypeName
+                        Error = $_.Exception.Message
+                    }
+                    $rawResultJson = $null
+                    try {
+                        $rawResultJson = ($rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false)
+                    }
+                    catch {
+                        $rawResultJson = ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                    }
                     
                     $results.Add([TestResult]@{
                         ResourceId = $resource.ResourceId
@@ -161,10 +184,7 @@ function Test-PaaSPrivateEndpoints {
                         TimeStamp = (Get-Date).ToUniversalTime()
                         ExpectedResult = $testMetadata.ExpectedResult
                         ActualResult = "Error: $($_.Exception.Message)"
-                        RawResult = @{
-                            ResourceType = $resourceTypeName
-                            Error = $_.Exception.Message
-                        }
+                        RawResult = $rawResultJson
                         ResultStatus = 'Fail'
                     })
                 }

@@ -40,6 +40,19 @@ function Test-VMAvailabilityZones {
     foreach ($vm in $VMs) {
         $actualResult = ($vm.Zones.Count -gt 0)
         
+        # Convert RawResult to JSON string for serialization through jobs
+        $rawResultObj = [PSCustomObject]@{
+            HasAvailabilityZones = $actualResult
+            Zones = if ($vm.Zones) { @($vm.Zones) } else { @() }
+        }
+        $rawResultJson = $null
+        try {
+            $rawResultJson = $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        catch {
+            $rawResultJson = ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+        }
+        
         $result = [TestResult]@{
             ResourceId = $vm.Id
             ResourceName = $vm.Name
@@ -51,7 +64,7 @@ function Test-VMAvailabilityZones {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $actualResult
-            RawResult = $vm.Zones
+            RawResult = $rawResultJson
             ResultStatus = if ($actualResult -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

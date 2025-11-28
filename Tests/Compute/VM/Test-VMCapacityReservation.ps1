@@ -33,6 +33,21 @@ function Test-VMCapacityReservation {
             $capacityReservationInfo = $vm.CapacityReservation.CapacityReservationGroup.Id
         }
         
+        # Convert RawResult to JSON string for serialization through jobs
+        $rawResultObj = [PSCustomObject]@{
+            HasCapacityReservation = $hasCapacityReservation
+            CapacityReservationGroupId = $capacityReservationInfo
+            CapacityReservationObject = $vm.CapacityReservation
+        }
+        $rawResultJson = $null
+        try {
+            $rawResultJson = $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        catch {
+            # Fallback if JSON conversion fails
+            $rawResultJson = ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+        }
+        
         $result = [TestResult]@{
             ResourceId = $vm.Id
             ResourceName = $vm.Name
@@ -44,11 +59,7 @@ function Test-VMCapacityReservation {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $hasCapacityReservation
-            RawResult = [PSCustomObject]@{
-                HasCapacityReservation = $hasCapacityReservation
-                CapacityReservationGroupId = $capacityReservationInfo
-                CapacityReservationObject = $vm.CapacityReservation
-            }
+            RawResult = $rawResultJson
             ResultStatus = if ($hasCapacityReservation -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

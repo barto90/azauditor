@@ -53,10 +53,18 @@ function Test-VMWorkloadDataSeparation {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $actualResult
-            RawResult = [PSCustomObject]@{
-                DataDiskCount = $dataDiskCount
-                DataDisks = $vm.StorageProfile.DataDisks
-            }
+            RawResult = $(
+                $rawResultObj = [PSCustomObject]@{
+                    DataDiskCount = $dataDiskCount
+                    DataDisks = $vm.StorageProfile.DataDisks
+                }
+                try {
+                    $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+                }
+                catch {
+                    ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                }
+            )
             ResultStatus = if ($actualResult -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

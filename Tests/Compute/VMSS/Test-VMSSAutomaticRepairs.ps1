@@ -57,6 +57,15 @@ function Test-VMSSAutomaticRepairs {
             }
         }
         
+        # Convert RawResult to JSON string for serialization through jobs
+        $rawResultJson = $null
+        try {
+            $rawResultJson = $rawResult | ConvertTo-Json -Depth 10 -Compress:$false
+        }
+        catch {
+            $rawResultJson = ($rawResult | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+        }
+        
         $result = [TestResult]@{
             ResourceId = $scaleSet.Id
             ResourceName = $scaleSet.Name
@@ -68,7 +77,7 @@ function Test-VMSSAutomaticRepairs {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $automaticRepairsEnabled
-            RawResult = $rawResult
+            RawResult = $rawResultJson
             ResultStatus = if ($automaticRepairsEnabled -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

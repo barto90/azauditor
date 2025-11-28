@@ -89,12 +89,20 @@ function Test-VMNetworkSecurityGroup {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $hasNSG
-            RawResult = [PSCustomObject]@{
-                HasNSG = $hasNSG
-                NSGLocation = $nsgLocation
-                NSGId = $nsgInfo
-                NetworkInterfaces = $networkInterfaces.Id
-            }
+            RawResult = $(
+                $rawResultObj = [PSCustomObject]@{
+                    HasNSG = $hasNSG
+                    NSGLocation = $nsgLocation
+                    NSGId = $nsgInfo
+                    NetworkInterfaces = $networkInterfaces.Id
+                }
+                try {
+                    $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+                }
+                catch {
+                    ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                }
+            )
             ResultStatus = if ($hasNSG -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         

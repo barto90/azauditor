@@ -82,10 +82,18 @@ function Test-VMBackupProtection {
             TestDescription = $testMetadata.Description
             ExpectedResult = $testMetadata.ExpectedResult
             ActualResult = $isProtected
-            RawResult = [PSCustomObject]@{
-                BackupEnabled = $isProtected
-                VMId = $vm.Id
-            }
+            RawResult = $(
+                $rawResultObj = [PSCustomObject]@{
+                    BackupEnabled = $isProtected
+                    VMId = $vm.Id
+                }
+                try {
+                    $rawResultObj | ConvertTo-Json -Depth 10 -Compress:$false
+                }
+                catch {
+                    ($rawResultObj | Select-Object * | ConvertTo-Json -Depth 10 -Compress:$false)
+                }
+            )
             ResultStatus = if ($isProtected -eq $testMetadata.ExpectedResult) { [ResultStatus]::Pass } else { [ResultStatus]::Fail }
         }
         
